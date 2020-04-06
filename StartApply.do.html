@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html><head>
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta http-equiv="pragma" content="no-cache">
+    <meta http-equiv="expires" content="-1">
+    <meta http-equiv="cache-control" content="no-cache">
+    <meta http-equiv="cache-control" content="no-store">
+	<meta http-equiv="X-UA-Compatible" content="IE=Edge">
+    
+    
+
+
+
+<script>var isomorphicDir="/dbv3/isomorphic/";</script>
+<script src="StartApply.do_files/ISC_Core.js"></script>
+<script src="StartApply.do_files/ISC_Foundation.js"></script>
+<script src="StartApply.do_files/ISC_Containers.js"></script>
+<script src="StartApply.do_files/ISC_Grids.js"></script>
+<script src="StartApply.do_files/ISC_Forms.js"></script>
+<script src="StartApply.do_files/ISC_DataBinding.js"></script>
+<script src="StartApply.do_files/load_skin.js"></script><link rel="stylesheet" type="text/css" href="StartApply.do_files/skin_styles.css">
+<script src="StartApply.do_files/json2.js"></script>
+<script src="StartApply.do_files/map.js"></script>
+<script src="StartApply.do_files/core-min.js"></script>
+
+<script>
+
+    if (window.isc != null) {
+        if (isc.version.startsWith("SC_SNAPSHOT-2012-02-29_v8.2p/")) {
+            if (isc.HTMLFlow != null) {
+                isc.HTMLFlow.addProperties({modifyContent:function () {}});
+            }
+        } else {
+            isc.Log.logWarn("Patch for SmartClient 8.2 final release (reported version 'SC_SNAPSHOT-2012-02-29_v8.2p/') " +
+                "included in this application. " +
+                "You are currently running SmartClient verion '"+ isc.version +
+                "'. This patch is not compatible with this build and will have no effect. " +
+                "It should be removed from your application source.");
+        }
+    }
+
+    // own implementation of number (internal number) - to display formatted numbers according to locale
+    isc.ClassFactory.defineClass("IntnumberItem", "TextItem");
+    isc.IntnumberItem.addProperties( {
+        mapDisplayToValue : function(displayValue) {
+            if ((displayValue == undefined) || (displayValue == ''))
+                return 0;
+            var value = displayValue.toString();
+            if(DECIMAL_SEPARATOR == JS_DECIMAL_SEPARATOR) { // for numbers 100,000.00 - US format
+                value = value.replace(/\,/g,'');
+            }
+            else { // for numbers 100.000,00 - German format
+                value = value.replace(/\./g,'');
+                value = value.replace(/,/g,".");
+            }
+
+            if (isNaN(value)) // clear not a number
+                value = 0;
+
+            var decimal_count = this.decimal_places;
+            var padding = (decimal_count > 0) ? 1 : 0;
+
+            // cut the decimal on decimal_count
+            if(value != 0 && value.lastIndexOf(".") != -1 && (value.length > value.lastIndexOf(".") + (decimal_count + padding)))
+                value = value.substring(0, value.lastIndexOf(".") + (decimal_count + padding));
+
+            return parseFloat(value);
+        },
+
+        mapValueToDisplay : function(internalValue) {
+            return formatDisplay(internalValue);
+
+        },
+
+        decimal_places : 2 // default decimal places (fractial digits)
+    });
+
+
+
+    isc.SimpleType.create( {
+        name :"intnumber",
+        inheritsFrom :"float",
+        normalDisplayFormatter : function(internalValue) {
+            return this.shortDisplayFormatter(internalValue);
+        },
+        shortDisplayFormatter : function(internalValue) {
+            return formatDisplay(internalValue);
+        },
+
+        editorType :"IntnumberItem"
+    });
+
+    function formatDisplay(internalValue) {
+        if ((internalValue == undefined) || (internalValue == '')
+            || isNaN(internalValue))
+            return '';
+        else {
+            var value = internalValue.toString();
+            if(DECIMAL_SEPARATOR == JS_DECIMAL_SEPARATOR) { // for numbers 100,000.00 - US format
+                var exp = new RegExp('(^\.-?[0-9]*)([0-9]{3})');
+                while (exp.test(value)) {
+                    value = value.replace(exp, "$1,$2");
+                }
+                return value;
+            }
+            else { // for numbers 100000 --- > 100.000,00 - German format
+                value = value.replace(/\./g, ",");
+                var exp = new RegExp('(^\.-?[0-9]*)([0-9]{3})');
+                while (exp.test(value)) {
+                    value = value.replace(exp, "$1.$2");
+                }
+                return value;
+            }
+
+        }
+
+    }
+
+    function checkDates(grid, vonLabel, bisLabel) {
+        try{
+			von = grid.getEditValue(grid.getEditRow(), grid.getFieldNum(vonLabel));
+			bis = grid.getEditValue(grid.getEditRow(), grid.getFieldNum(bisLabel));
+			if(von == null) {
+				von = isc.getValueForKey (vonLabel, grid.data.get(grid.getEditRow()));
+			}
+			if(bis == null) {
+				bis = isc.getValueForKey (bisLabel, grid.data.get(grid.getEditRow()));
+			}
+
+			if(!isA.Date(bis) || !isA.Date(von)) // ignore, let validation to anounce the error
+				return true;
+
+			if(Date.compareDates(von, bis) == -1){
+				grid.fields[grid.getFieldNum(vonLabel)].validators[0].errorMessage='Das Endedatum darf nicht vor dem Startdatum liegen';
+				grid.fields[grid.getFieldNum(bisLabel)].validators[0].errorMessage='Das Endedatum darf nicht vor dem Startdatum liegen';
+				return false; 
+			}
+		}
+		catch(e){
+			return true;
+		}
+        return true;
+    }
+	
+	
+
+    function checkDatesForm(form, vonLabel, bisLabel) {
+		try{
+			if(vonLabel == null || bisLabel == null) // ignore empty row
+				return true;
+			von = Date.parseInput(form.getItem(vonLabel).getEnteredValue());
+			bis = Date.parseInput(form.getItem(bisLabel).getEnteredValue());
+			if(!isA.Date(bis) || !isA.Date(von)) // ignore, let validation to anounce the error
+				return true;
+
+			if(Date.compareDates(von, bis) == -1)
+				return false;
+			form.clearFieldErrors(vonLabel, true);
+			form.clearFieldErrors(bisLabel, true); 
+		}
+		catch(e){
+			return true;
+		}
+        return true;
+    }
+
+
+    function getNumberValue(value, decimal_count) {
+
+        // convert to js number
+        if(DECIMAL_SEPARATOR == JS_DECIMAL_SEPARATOR) { // for numbers 100,000.00 - US format
+            value = value.toString().replace(/\,/g,'');
+        }
+        else { // for numbers 100.000,00 - German format
+            value = value.toString().replace(/\./g,'');
+            value = value.replace(/,/g,".");
+        }
+
+        var padding = (decimal_count > 0) ? 1 : 0;
+
+        if(value.lastIndexOf(".") != -1 && (value.length > value.lastIndexOf(".") + (decimal_count + padding)))
+            value = value.substring(0, value.lastIndexOf(".") + (decimal_count + padding));
+
+        /*
+    if (isNaN(value))
+        value=null;  // you should also create a validator that will not permit invalid entry
+         */
+        //var numb = parseFloat(value);
+        return value;
+
+    }
+
+    function convertNumber(elem, decimal_count) {
+
+        var value = elem.getValue();
+        if(value == null)
+            return;
+
+        value = getNumberValue(value, decimal_count);
+
+        if(!isNaN(value))
+            elem.setValue(value);
+        else
+            elem.setValue("");
+    }
+
+	function deletePlaceholder(grid){
+		var record = grid.getEditedRecord(grid.getEditRow());
+		var fields = grid.fields;
+		for(i = 0; i < fields.length; i++) {
+            if(isc.getValueForKey(fields[i].name, record, null) == "MM.JJJJ")
+				grid.setEditValue(grid.getEditRow(),i,'');
+        }
+		
+	}
+	
+    /**
+     * return false if empty row has been found
+     * - if row had values before and now is empty delete the empty row
+     * - if no previous values has been found just cancel editing
+     */
+    function handleEmptyRow(grid) {
+        if(grid.getEditRow() == null) // only edited rows handle
+            return false;
+
+			
+		//delete the MM.YYYY string from grids
+		deletePlaceholder(grid);
+
+        isEmpty = isRowEmpty(grid, grid.getEditedRecord(grid.getEditRow()));
+        if (isEmpty) {
+            if(grid.data.get(grid.getEditRow()) != null) {
+                grid.removeSelectedData(); // delete empty row from grid
+            }
+            else {
+                grid.cancelEditing();
+            }
+            return false; // do not update saves
+        }
+        else
+            return true;
+    }
+
+
+    function isRowEmpty(grid, record) {
+        var fields = grid.fields;
+        for(i = 0; i < fields.length; i++) {
+            if(isc.getValueForKey(fields[i].name, record, null) != null && isc.getValueForKey(fields[i].name, record, null) != '')
+                return false;
+        }
+
+        return true;
+    }
+
+
+	
+    function checkGrid(grid) {
+        if(handleEmptyRow(grid)) {
+            grid.endEditing();
+        }
+    }
+    
+    function resetSocialNetworkVars(){
+      try{
+        _socNetworkData = null;
+        _socNetworkID = null;
+      } catch(e){}
+    }
+    
+    function trim(stringToTrim) {
+      return stringToTrim.replace(/^\s+|\s+$/g,"");
+    }
+       
+    function isEmpty(variable){
+      return !variable || variable == undefined || variable == "" || variable == "null" || variable == "undefined";
+    }
+    
+    /* only WKDPERS fields! */
+    function setFieldValue(fieldID, newValue, overwriteOldValue){
+      try{
+        if (!isEmpty(newValue)){
+          if (!overwriteOldValue && !isEmpty(wkdpersForm.getField(fieldID).getValue())){
+            return;
+          } else{
+            wkdpersForm.getField(fieldID).setValue(newValue);
+          }
+        }   
+      }catch(e){}
+    }
+
+    function fillWkdpersFormular(){
+      try{
+        if (wkdpersForm && _socNetworkData != null && _socNetworkID != null && _socNetworkID != -1){
+          // LinkedIn data
+          if (_socNetworkID === 2){
+            if (!isEmpty(_socNetworkData.dateOfBirth)){
+              var birthDay = _socNetworkData.dateOfBirth.day + "." + _socNetworkData.dateOfBirth.month + "." + _socNetworkData.dateOfBirth.year;
+              setFieldValue("pdgebdat", birthDay, true);
+            }              
+            setFieldValue("pdvoname", _socNetworkData.firstName, true);
+            setFieldValue("pdnaname", _socNetworkData.lastName, true);
+            // email fields
+            setFieldValue("kodnr", _socNetworkData.emailAddress, true);
+            setFieldValue("kodnr2", _socNetworkData.emailAddress, true);
+            // address
+            /* this is more difficult, because the user can write he address in LinkedIn in any format!!
+                - the "address parsing" algorith must by more sofisiticated
+            */
+            var strAddress = _socNetworkData.mainAddress.replace(/\,/g," ");
+            strAddress = strAddress.replace(/[\s]{2,}/g," ");
+            var splitedAddress = strAddress.split(" ");  // e.g. "Friedrichstraße 45,80796 München"
+            // Street & House number
+            if (!isEmpty(splitedAddress[1]) && splitedAddress.length == 4){
+              setFieldValue("pdstr", splitedAddress[0] + " " + splitedAddress[1], false);
+              // PLZ & City
+              setFieldValue("pdplz", splitedAddress[2], false);
+              setFieldValue("pdort", splitedAddress[3], false);
+            } else{
+              setFieldValue("pdstr", splitedAddress[0], false);
+              // PLZ & City
+              setFieldValue("pdplz", splitedAddress[1], false);
+              setFieldValue("pdort", splitedAddress[2], false);
+            }
+            
+            // phone numbers
+            if (!isEmpty(_socNetworkData.phoneNumbers)){
+              for (i in _socNetworkData.phoneNumbers.values){
+                var phoneNumberObj = _socNetworkData.phoneNumbers.values[i];
+                if (phoneNumberObj.phoneType == "mobile"){
+                  setFieldValue("zzdumpgn", phoneNumberObj.phoneNumber, true);
+                } else if (phoneNumberObj.phoneType == "home"){
+                  setFieldValue("pdtelprv", phoneNumberObj.phoneNumber, true);
+                } else if(phoneNumberObj.phoneType == "work"){
+                  setFieldValue("pdtelges", phoneNumberObj.phoneNumber, true);
+                }
+              }
+            }
+          }
+          
+          // Facebook
+          if (_socNetworkID === 1){
+            setFieldValue("pdvoname", personData.first_name, true);
+            setFieldValue("pdnaname", personData.last_name, true);
+            if (personData.gender){
+              if (personData.gender === "male")
+                setFieldValue("pdgeschl", "M", true);
+              else
+                setFieldValue("pdgeschl", "W", true);
+            }
+            setFieldValue("pdgebort", personData.hometown.name, true);
+            setFieldValue("pdgebdat", personData.birthday, true);
+            setFieldValue("pdort", personData.location.name, true);
+            setFieldValue("kodnr", personData.email, true);
+            setFieldValue("kodnr2", personData.email, true);
+            if (personData.relationship_status){
+              switch(personData.relationship_status){
+                case "Single": setFieldValue("mdfamstd", "L", true); break;
+                case "Widowed": setFieldValue("mdfamstd", "W", true); break;
+                case "Divorced": setFieldValue("mdfamstd", "X", true); break;
+                case "Married": setFieldValue("mdfamstd", "V", true); break;
+                default: break;
+              }
+            }
+          }
+          
+          // Xing data
+          if (_socNetworkID === 3){
+            if (personData.users && personData.users[0]){
+              personData = personData.users[0];
+              
+              setFieldValue("pdvoname", personData.first_name, true);
+              setFieldValue("pdnaname", personData.last_name, true);
+              if (personData.gender === "m"){
+                setFieldValue("pdgeschl", "M", true);
+              }
+              else{
+                setFieldValue("pdgeschl", "W", true);
+              }
+              setFieldValue("pdgebdat", personData.birth_date.day + "." + personData.birth_date.month + "." + personData.birth_date.year, true);
+              
+              // private data
+              if (!isEmpty(personData.private_address)){
+                var privateData = personData.private_address;
+                setFieldValue("kodnr", privateData.email, true);
+                setFieldValue("kodnr2", privateData.email, true);
+                setFieldValue("pdplz", privateData.zip_code, true);
+                setFieldValue("pdort", privateData.city, true);
+                setFieldValue("pdstr", privateData.street, true);
+                setFieldValue("pdtelprv", privateData.phone.replace(/\|/g,' ').replace( /\s\s+/g, ' ' ), true);
+                setFieldValue("zzdumpgn", privateData.mobile_phone.replace(/\|/g,' ').replace( /\s\s+/g, ' ' ), true);
+                setFieldValue("pdfax", privateData.fax.replace(/\|/g,' ').replace( /\s\s+/g, ' ' ), true);
+              }
+              // if the private e-mail address is not specified, get the active e-mail address instead
+              if (isEmpty(wkdpersForm.getField("kodnr").getValue()) && isEmpty(wkdpersForm.getField("kodnr2").getValue())){
+                setFieldValue("kodnr", personData.active_email, true);
+                setFieldValue("kodnr2", personData.active_email, true);
+              }
+              
+              // business data
+              if (!isEmpty(personData.business_address)){
+                var businessData = personData.business_address;
+                setFieldValue("pdtelges", businessData.phone.replace(/\|/g,' ').replace( /\s\s+/g, ' ' ), true);
+              }
+              // photo: personData.photo_urls.large
+            }
+          }
+        }
+      } catch(e){
+        // err
+      }
+      resetSocialNetworkVars();
+    }
+    
+    function fillWkdqualiFormularLngGrid(){
+      try{
+          var cacheData = null;
+          // Facebook
+          if (_socNetworkID === 1){
+            for (i = 0; i < _socNetworkData.languages.size(); i++){
+              if (FBLanguages.get(_socNetworkData.languages.get(i).id)){
+                
+              }
+            }
+            if (cacheData != null)
+              spracheListGrid.setCacheData(cacheData);
+          }
+      } catch(e){}
+      //resetSocialNetworkVars();
+    }
+    
+    function checkAllDataGrids() {
+        try { if (kinderListGrid){checkGrid(kinderListGrid);} } catch(e) {}
+        try { if (schuleListGrid){checkGrid(schuleListGrid);} } catch(e) {}
+        try { if (studiumListGrid){checkGrid(studiumListGrid);} } catch(e) {}
+        try { if (spezialListGrid){checkGrid(spezialListGrid);} } catch(e) {}
+        try { if (weiterbildungListGrid){checkGrid(weiterbildungListGrid);} } catch(e) {}
+        try { if (praktikaListGrid){checkGrid(praktikaListGrid);} } catch(e) {}
+        try { if (berufsausbildungListGrid){checkGrid(berufsausbildungListGrid);} } catch(e) {}
+        try { if (berufserfahrungListGrid){checkGrid(berufserfahrungListGrid);} } catch(e) {}
+        try { if (nebentatigkeitenListGrid){checkGrid(nebentatigkeitenListGrid);} } catch(e) {}
+        try { if (spracheListGrid){checkGrid(spracheListGrid);} } catch(e) {}
+        try { if (edvListGrid){checkGrid(edvListGrid);} } catch(e) {}
+        try { if (sonstListGrid){checkGrid(sonstListGrid);} } catch(e) {}
+    }
+
+    /** cancels the administration mode by calling MultiFileUpload with complete_data: "cancel" */
+    function cancelAdminMode() {
+        RPCManager.sendRequest(
+        {
+            httpMethod: "POST",
+            useSimpleHttp: true,
+            serverOutputAsString: true,
+            actionURL: "/dbv3/web/MultiFileUpload.do",
+            params: {
+                complete_data: "cancel"
+            }
+        });
+    }
+
+    function wafReqParamConvert(valuex) {
+        // valuex.replace('constructor\=\"DataSource\"/g', ' '); = valuex.replaceAll('constructor\=\"DataSource\"', ' ');
+        // replaceAll is not supported in all browsers
+        valuex = replaceAll(valuex, 'constructor\=\"DataSource\"', ' ');
+        valuex = replaceAll(valuex, '<optionDataSource>', '<optDataSource>');
+        valuex = replaceAll(valuex, '</optionDataSource>', '</optDataSource>');
+        return valuex;        
+    }
+
+    function replaceAll(txt, replace, with_this) {
+         try {
+            return txt.replace(new RegExp(replace, 'g'),with_this);
+         } catch (e) {
+            // ignore unknown types, better as use typeof instanceof
+         }
+    }
+
+
+    function base64_encode (data) {
+        // http://kevin.vanzonneveld.net
+        // +   original by: Tyler Akins (http://rumkin.com)
+        // +   improved by: Bayron Guevara
+        // +   improved by: Thunder.m
+        // +   improved by: Kevin van Zonneveld (http://kevin.vanzonneveld.net)
+        // +   bugfixed by: Pellentesque Malesuada
+        // +   improved by: Kevin van Zonneveld (http://kevin.vanzonneveld.net)
+        // +   improved by: Rafa? Kukawski (http://kukawski.pl)
+        // *     example 1: base64_encode('Kevin van Zonneveld');
+        // *     returns 1: 'S2V2aW4gdmFuIFpvbm5ldmVsZA=='
+        // mozilla has this native
+        // - but breaks in 2.0.0.12!
+        
+      
+        var b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+        var o1, o2, o3, h1, h2, h3, h4, bits, i = 0,
+        ac = 0,
+        enc = "",
+        tmp_arr = [];
+        
+        if (!data) {
+            return data;
+        }
+        
+        do { // pack three octets into four hexets
+            o1 = data.charCodeAt(i++);
+            o2 = data.charCodeAt(i++);
+            o3 = data.charCodeAt(i++);
+            
+            bits = o1 << 16 | o2 << 8 | o3;
+            
+            h1 = bits >> 18 & 0x3f;
+            h2 = bits >> 12 & 0x3f;
+            h3 = bits >> 6 & 0x3f;
+            h4 = bits & 0x3f;
+            
+            // use hexets to index into b64, and append result to encoded string
+            tmp_arr[ac++] = b64.charAt(h1) + b64.charAt(h2) + b64.charAt(h3) + b64.charAt(h4);
+        } while (i < data.length);
+        
+        enc = tmp_arr.join('');
+        
+        var r = data.length % 3;
+        
+        return (r ? enc.slice(0, r - 3) : enc) + '==='.slice(r || 3);
+        
+    }
+</script>
+  <script>
+/*
+* -------------------------- STRINGBUILDER CLASS ---------------------------------
+* -----------------faster String concatenation------------------------------------
+*
+* >> EXAMPLE
+* // create a StringBuilder
+* var sb = new StringBuilder();
+* // append some text
+* sb.append(" test test test ");
+* get the full string value
+* var s = sb.toString();
+*
+*/
+
+function StringBuilder(value){
+    this.strings = new Array("");
+    this.append(value);
+}
+
+// Appends the given value to the end of this instance.
+StringBuilder.prototype.append = function (value){
+    if (value)
+    {
+        this.strings.push(value);
+    }
+}
+
+// Clears the string buffer
+StringBuilder.prototype.clear = function (){
+    this.strings.length = 1;
+}
+
+// Converts this instance to a String.
+StringBuilder.prototype.toString = function (){
+    return this.strings.join("");
+}
+</script>
+ 
+  <style>
+    div.setCustomHeight iframe{
+      height: 200px;
+    }
+	
+	.wkdanlagInstructCustomStyle{
+		text-align: justify;
+	}
+  </style>
+  
+<script src="StartApply.do_files/md5-min.js"></script>
+<script src="StartApply.do_files/core-min.js"></script>
+</head><body>
+
+<script>
+
+window.onbeforeunload = function(){
+	return "Möchten Sie die Seite wirklich verlassen? Alle Eingaben, die Sie bis jetzt gemacht haben, gehen verloren!";
+}
+
+var FILE_HANDLING_COUNT = 0;
+
+function getFileUploadStackHeight(){
+   var height = 0;
+   for (var i = 0; i < wkdanlagFileUploadLayout.getMembers().length; i++){
+      height += wkdanlagFileUploadLayout.getMember(i).getVisibleHeight() + 5;
+   }
+   return height;
+}
+
+function handleFileUploadResponse(resp){
+	FILE_HANDLING_COUNT--;
+   try{
+      if (wkdanlagFileUploadLayout){
+         uploadStatusLabel = wkdanlagFileUploadLayout.getMember("hStackFileForm"+resp.fileID).getMember("uploadStatus");
+         removeButton = wkdanlagFileUploadLayout.getMember("hStackFileForm"+resp.fileID).getMember("removeButton");
+         uploadInput = wkdanlagFileUploadLayout.getMember("hStackFileForm"+resp.fileID).members[1].getItem("formFile[" + resp.fileID + "]");
+         uploadFileType = wkdanlagFileUploadLayout.getMember("hStackFileForm"+resp.fileID).members[1].getItem("filetype");
+         isRequired = wkdanlagFileUploadLayout.getMember("hStackFileForm"+resp.fileID).members[1].getItem("requiredField").getValue();
+			
+         if (resp.error == 0){
+            if (resp.action == "add"){
+               uploadStatusLabel.setIcon("[SKIN]actions/approve.png");
+               uploadStatusLabel.setContents(resp.msg);
+               //uploadStatusLabel.setBackgroundColor("#AAFFAA");
+               removeButton.enable();
+					if (isRequired){
+						uploadInput.enable();
+					}
+            } else if (resp.action == "remove"){
+               wkdanlagFileUploadLayout.removeMember("hStackFileForm" + resp.fileID);
+               wkdanlagFileUploadLayout.setHeight(getFileUploadStackHeight());
+					UPLOAD_FIELD_COUNT--;
+					if (UPLOAD_FIELD_COUNT  <= 5){
+						addButtonSimpleForm.getItem("formFileAddButton").show();
+					}
+            }
+         } else if (resp.error == 1){
+            uploadStatusLabel.setIcon("[SKIN]actions/remove.png");
+            uploadStatusLabel.setContents(resp.msg);
+            uploadInput.resetValue();
+            uploadInput.enable();
+            removeButton.enable();
+            //uploadStatusLabel.setBackgroundColor("#FFAAAA");
+         } else{  // invalid request
+            uploadStatusLabel.setContents("");
+            uploadInput.resetValue();
+            uploadInput.enable();
+            uploadFileType.enable();
+            removeButton.enable();
+         }
+		
+		if (waitWin){
+			waitWin.close();
+		}
+			
+		if (!isAjaxFileUploadEnabled()){
+			enableAllNonRequiredUploadFields();
+		}
+      }
+   } catch (e){}
+}
+    
+    // In iPad set the initial zoom level to 1.0 and disable scaling. 
+    // In iPhone, set to large enough to view the app as a whole (but allow the user to scale so 
+    // they can zoom in and make text readable!).
+	dateOfBirth=null;
+    try{
+      if (isc.Browser.isMobileWebkit) { 
+          isc.Canvas.addProperties({
+              scrollbarConstructor: "NativeScrollbar"
+          });
+
+          if (isc.Browser.isHandset) { 
+              isc.Page.updateViewport(null, 700, null, true); 
+          } else { 
+              isc.Page.updateViewport(1.0, null, null, true); 
+          } 
+      }
+    } catch(e){}
+
+    /* checks if the message is defined in the AppResources */
+    function isMessageDefined(message){
+      return !(message.indexOf('???') == 0 && (message.length - 3 ==  message.lastIndexOf('???')));
+    }
+  
+    if(false) { // in admin mode display unload message. When OK - unload cancel the current administration mode in MultipleFileUpload.do see cancelAdminMode();
+        isc.Page.setUnloadMessage('Wenn Sie die Seite verlassen, gehen die Daten verloren. Möchten Sie wirklich die Seite verlassen? (Ok - Seite verlassen, Abbrechen - Auf der Seite bleiben).');
+        isc.Page.setEvent("unload", "cancelAdminMode();");
+    }
+
+    var GROUP_SEPARATOR = '.';
+    var DECIMAL_SEPARATOR = ',';
+    var JS_DECIMAL_SEPARATOR = '.';
+    
+    //javascript:isc.showConsole();
+
+    // Date locale settings test
+    // change today button of date widget
+    isc.DateChooser.addProperties({todayButtonTitle:"Heute"});
+    // change cancel button of date widget,
+    isc.DateChooser.addProperties({cancelButtonTitle:"Abbrechen"});
+    isc.DateItem.addProperties({pickerIconPrompt : "Datum auswählen"});
+    
+    // user cannot enter a value that is not present in the set of options
+    isc.SelectItem.addProperties({addUnknownValues:false});
+    isc.ComboBoxItem.addProperties({addUnknownValues:false});
+    isc.DateItem.addProperties({daySelectorProperties: {prompt:"Wählen Sie den Tag"}});
+	isc.DateItem.addProperties({monthSelectorProperties: {prompt:"Wählen Sie den Monat"}});
+	isc.DateItem.addProperties({yearSelectorProperties: {prompt:"Wählen Sie das Jahr"}});
+	// change the DateItem properties 
+    isc.DateItem.addProperties({
+        showPicker : function () { // for date in PickList
+                this.Super("showPicker", arguments);
+                this.picker.startYear = 1950;
+                this.picker.endYear = 2018;
+            },
+		startDate: new Date(1/1/1950), //for date in Combobox
+		validators:[{	
+			type:"dateRange",
+			min:"1901-01-01",	
+			max:"2099-12-31",			
+			errorMessage: 'Das Jahr muss zwischen 1900 und 2099 sein!'			
+			}]
+		
+		,validateOnChange:true
+		
+	});
+	
+	//format of date - order of combos fields (day, month, year)
+    
+      isc.DateItem.changeDefaults("useTextField", true);    // set Date as textfields	
+
+    
+    
+    // if the date picker should be shown
+    
+
+	
+    // label for empty picklist (selects, lists)
+    isc.PickListMenu.addProperties({emptyMessage: "Keine Daten vorhanden"});
+
+    // do not allow to display/hide columns in context menu
+    isc.ListGrid.addProperties({canPickFields: false});
+
+    // do not allow header context menu
+    isc.ListGrid.addProperties({showHeaderContextMenu: false});
+	
+	
+
+    // extended text input for long text fields ( > 200), disable columns reorder
+    isc.ListGrid.addProperties({longTextEditorThreshold: 200}, {canReorderFields: false}     );
+
+    // disable "Contacting server" message by data load
+    isc.DataSource.addProperties({showPrompt: false});
+    var customMsg = 'Der Wert muss eingetragen werden!';
+    if (isMessageDefined(customMsg))
+      isc.Validator.addClassProperties({requiredField: customMsg});
+    customMsg = 'Der Wert muss numerisch (ganzzahlig) sein!';
+    if (isMessageDefined(customMsg))
+      isc.Validator.addClassProperties({notAnInteger: customMsg});
+    customMsg = 'Ungültiges Datum!';
+    if (isMessageDefined(customMsg))
+      isc.Validator.addClassProperties({notADate: customMsg});
+    customMsg = 'Der Wert muss numerisch sein!';
+    if (isMessageDefined(customMsg))
+      isc.Validator.addClassProperties({notADecimal: customMsg});
+    customMsg = 'Der Wert darf nicht größer als ${max} sein!';
+    if (isMessageDefined(customMsg))
+      isc.Validator.addClassProperties({mustBeLessThan: customMsg});      
+    customMsg = 'Der Wert darf nicht kleiner als ${min} sein!';
+    if (isMessageDefined(customMsg))
+      isc.Validator.addClassProperties({mustBeGreaterThan: customMsg});
+    
+    Date.shortDayNames = ["So", "Mo", "Di",
+        "Mi", "Do", "Fr",
+        "Sa"];
+
+    Date.shortMonthNames = ["Jan", "Feb", "Mär",
+        "Apr", "Mai", "Jun",
+        "Jul", "Aug", "Sep",
+        "Okt", "Nov", "Dez"];
+
+    /* Date Format */
+    Date.setShortDisplayFormat(function () {
+        var zeroFillM = (this.getMonth() + 1) < 10 ? "0" : "";
+        var zeroFillD = (this.getDate() < 10) ? "0" : "";
+        return zeroFillD + this.getDate() + "." + zeroFillM + (this.getMonth() + 1) + "." + this.getFullYear();
+    });
+
+    Date.setInputFormat("DMY");
+	   // label for empty list grid customize
+    isc.ListGrid.addProperties({
+		emptyMessage: "Keine Daten vorhanden"
+		// if set, use MM.YYYY Date format for all Listgrids
+		
+	});
+
+    // comboboxes
+    
+        
+
+
+
+function dataTransportErrorHandler(response, request){
+  return false;
+}
+
+// WKDPERS
+isc.DataSource.create({
+        ID:"migrhintergrundDS",
+        dataFormat:"xml",
+        recordXPath:"//migrhintergrund/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/migrhintergrund.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pdanredeDS",
+        dataFormat:"xml",
+        recordXPath:"//pdanrede/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdanrede.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pdtitelDS",
+        dataFormat:"xml",
+        recordXPath:"//pdtitel/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdtitel.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+	
+isc.DataSource.create({
+        ID:"pdtitelnDS",
+        dataFormat:"xml",
+        recordXPath:"//pdtiteln/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdtiteln.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pdnamezsDS",
+        dataFormat:"xml",
+        recordXPath:"//pdnamezs/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdnamezs.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pdnamevoDS",
+        dataFormat:"xml",
+        recordXPath:"//pdnamevo/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdnamevo.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pdgeschlDS",
+        dataFormat:"xml",
+        recordXPath:"//pdgeschl/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdgeschl.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"mdfamstdDS",
+        dataFormat:"xml",
+        recordXPath:"//mdfamstd/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/mdfamstd.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pglandDS",
+        dataFormat:"xml",
+        recordXPath:"//pgland/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pgland.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pdstaatDS",
+        dataFormat:"xml",
+        recordXPath:"//pdstaat/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdstaat.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"vueschulDS",
+        dataFormat:"xml",
+        recordXPath:"//vueschul/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/vueschul.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"vuefkzDS",
+        dataFormat:"xml",
+        recordXPath:"//vuefkz/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/vuefkz.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pdtaintDS",
+        dataFormat:"xml",
+        recordXPath:"//pdtaint/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdtaint.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"bwskuendDS",
+        dataFormat:"xml",
+        recordXPath:"//bwskuend/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/bwskuend.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"bwsazDS",
+        dataFormat:"xml",
+        recordXPath:"//bwsaz/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/bwsaz.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+    
+isc.DataSource.create({
+        ID:"adrlandDS",
+        dataFormat:"xml",
+        recordXPath:"//adrland/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/adrland.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+    
+isc.DataSource.create({
+        ID:"pdgemDS",
+        dataFormat:"xml",
+        recordXPath:"//pdgem/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdgem.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+    
+isc.DataSource.create({
+        ID:"pdchkantDS",
+        dataFormat:"xml",
+        recordXPath:"//pdchkant/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdchkant.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pdsprDS",
+        dataFormat:"xml",
+        recordXPath:"//pdspr/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdspr.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"pdbulandDS",
+        dataFormat:"xml",
+        recordXPath:"//pdbuland/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/pdbuland.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+    
+    isc.DataSource.create({
+        ID:"bwswish1DS",
+        dataFormat:"xml",
+        recordXPath:"//bwswish1/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/bwswish1.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+// WKDPERSV
+	isc.DataSource.create({
+        ID:"vuepreffuseDS",
+        dataFormat:"xml",
+        recordXPath:"//vuepreffuse/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/vuepreffuse.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+		
+    
+// WKDAUSB    
+isc.DataSource.create({
+        ID:"lbabschlDS",
+        dataFormat:"xml",
+        recordXPath:"//lbabschl/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/lbabschl.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+	
+isc.DataSource.create({
+        ID:"lbberausDS",
+        dataFormat:"xml",
+        recordXPath:"//lbberaus/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/lbberaus.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+    
+isc.DataSource.create({
+        ID:"lbschartDS",
+        dataFormat:"xml",
+        recordXPath:"//lbschart/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/lbschart.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"lbspezpfDS",
+        dataFormat:"xml",
+        recordXPath:"//lbspezpf/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/lbspezpf.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"lbprfartDS",
+        dataFormat:"xml",
+        recordXPath:"//lbprfart/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/lbprfart.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"lbhsartDS",
+        dataFormat:"xml",
+        recordXPath:"//lbhsart/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/lbhsart.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+isc.DataSource.create({
+        ID:"lbfacharDS",
+        dataFormat:"xml",
+        recordXPath:"//lbfachar/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/lbfachar.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+	
+	
+isc.DataSource.create({
+        ID:"zeklassDS",
+        dataFormat:"xml",
+        recordXPath:"//zeklass/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/zeklass.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+// WKDWBILD
+isc.DataSource.create({
+        ID:"lbwartDS",
+        dataFormat:"xml",
+        recordXPath:"//lbwart/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/lbwart.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+// WKDBERUF
+isc.DataSource.create({
+        ID:"lbberartDS",
+        dataFormat:"xml",
+        recordXPath:"//lbberart/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/lbberart.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+// WKDNEBEN
+isc.DataSource.create({
+        ID:"wtartDS",
+        dataFormat:"xml",
+        recordXPath:"//wtart/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/wtart.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+// WKDQUALI
+// gruppen
+isc.DataSource.create({
+        ID:"mqqugrpDS",
+        dataFormat:"xml",
+        //recordXPath:"//mqqugrp/value[key='EDV' or key='Sprache']",
+        recordXPath:"//mqqugrp/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/mqqugrp.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+
+// WKDANLAG
+isc.DataSource.create({
+        ID:"filetypeDS",
+        dataFormat:"xml",
+        recordXPath:"//paktyp/value",
+		  progressiveLoading:true,
+        dataURL:"/dbv3/shared/defaultman/ds/de/paktyp.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+    
+isc.DataSource.create({
+        ID:"bewqinfoDS",
+        dataFormat:"xml",
+        recordXPath:"//bewqinfo/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/bewqinfo.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+	
+// NEWSLETTER
+isc.DataSource.create({
+        ID:"besolDS",
+        dataFormat:"xml",
+        recordXPath:"//wertigkeit/value[stat='01']",
+        dataURL:"/dbv3/shared/defaultman/ds/de/wertigk.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });
+	
+isc.DataSource.create({
+        ID:"entgDS",
+        dataFormat:"xml",
+        recordXPath:"//wertigkeit/value[stat='02']",
+        dataURL:"/dbv3/shared/defaultman/ds/de/wertigk.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });	
+		
+	
+isc.DataSource.create({
+		ID:"behordeDS",
+		dataFormat:"xml",
+        recordXPath:"//behoerde/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/behoerde.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });	
+	
+	
+isc.DataSource.create({
+        ID:"aumfangDS",
+        dataFormat:"xml",
+        recordXPath:"//aumfang/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/aumfang.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });	
+	
+	//*********     Joblist settings     *********//
+	
+isc.DataSource.create({
+		ID:"bewtarg1DS",
+		dataFormat:"xml",
+        recordXPath:"//bewtarg1/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/bewtarg1.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });	
+	isc.DataSource.create({
+		ID:"bewtarg2DS",
+		dataFormat:"xml",
+        recordXPath:"//bewtarg2/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/bewtarg2.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });	
+	isc.DataSource.create({
+		ID:"bewtarg3DS",
+		dataFormat:"xml",
+        recordXPath:"//bewtarg3/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/bewtarg3.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });	
+	
+	isc.DataSource.create({
+		ID:"bewgrundDS",
+		dataFormat:"xml",
+        recordXPath:"//bewgrund/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/bewgrund.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });	
+	isc.DataSource.create({
+		ID:"befrei1DS",
+		dataFormat:"xml",
+        recordXPath:"//befrei1/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/befrei1.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });	
+	isc.DataSource.create({
+		ID:"befrei6DS",
+		dataFormat:"xml",
+        recordXPath:"//befrei6/value",
+        dataURL:"/dbv3/shared/defaultman/ds/de/befrei6.data.xml",
+        handleError: dataTransportErrorHandler,
+        fields:[
+            {name:"key"},
+            {name:"bez"}]
+    });	
+
+
+    
+	
+	//sectionstack for Enter key - for barrier free browsing	
+	isc.ImgSectionHeader.addProperties({
+		keyPress:function(){ 
+			if(isc.event.getKey()=="Enter"){
+				canCollapse: false 
+				}
+		}
+	});
+        var labelstr = '(label)';
+        // radio literals
+        // WKDPERS
+        var bwsazList = {V:"Vollzeit", T:"Teilzeit"};
+        var vuekfzList = {0:"Nein", 1:"Ja"};
+        var mjarbgubList = {0:"Nein", 1:"Ja"};
+        var kopraefList = {0:"0", 1:"1"};
+        var bwswettvList = {0:"0", 1:"1"};
+        var bwsvortList = {0:"nein", 1:"ja"};
+        var bwsinterList = {0:"0", 1:"1"};
+        var bwsscreeList = {0:"0", 1:"1"};
+		
+        // WKDPERSV
+        var vueschwbList = {1:"ja", 0:"nein"};
+        var vuetaugList = {1:"ja", 0:"nein"};
+        var vuenebList = {1:"ja", 0:"nein"};
+        var vuewpfList = {1:"ja", 0:"nein"};
+        var vueschwiList = {1:"ja", 0:"nein"};
+        var vuesehList = {1:"ja", 0:"nein"};
+        var vuewdList = {1:"ja", 0:"nein"};
+        var vueermList = {1:"ja", 0:"nein"};
+        var vuepfList = {1:"ja", 0:"nein"};
+        var vuebzList = {1:"ja", 0:"nein"};
+        var vuemedList = {1:"ja", 0:"nein"};
+        var vuechrkList = {1:"ja", 0:"nein"};
+        var vuebemerkList = {1:"ja", 0:"nein"};
+		var vuesportdoList = {0:"0", 1:"1"};
+        var vuediseasesList = {0:"0", 1:"1"};
+		var vuebzrqueryList = {0:"0", 1:"1"};
+		
+        var bwsbeschaefList = {1:"ja", 0:"nein"};
+
+
+        // WKDWANG
+        var lbartList = {WD:"Wehrdienst", Z:"Zivildienst"};
+        var lbsonkenList = {0:"0", 1:"1"};
+		
+        isc.ValuesManager.create({
+            ID:"bewerbVM"
+        }),
+        
+        isc.HTMLFlow.create({
+            ID:"topPane",
+            showEdges:false,
+            autoDraw:false,
+            overflow: "hidden",
+            height:"200px",
+            contentsType:"page",
+            styleName: "setCustomHeight",
+            contentsURL:"/dbv3/shared/defaultman/pages/top.jsp?dbv3_man=defaultman",
+            loadingMessage:" Loading... " }),
+			
+        isc.HTMLFlow.create({
+            ID:"bottomPane",
+            showEdges:false,
+            autoDraw:false,
+            overflow: "hidden",
+            height:"100px",
+            contentsType:"page",
+            contentsURL:"/dbv3/shared/defaultman/pages/bottom.jsp?dbv3_man=defaultman",
+            loadingMessage:" Loading... " }),
+
+        isc.TabSet.create({
+            top:0, width:"100%", height:"100%",
+            ID:"mainTabset",
+            autoDraw:false,
+            tabSelected : function(tabNum, tabPane, ID, tab, name) {
+                if(ID == 'wkdanlagFormTab') {
+                    checkAllDataGrids();
+                }
+            },
+            tabs:[
+                
+                { title:"Grunddaten",
+                    ID:"wkdpersFormTab",
+                    pane:isc.ViewLoader.create({
+                        ID:"wkdpersFormPane",
+                        autoDraw: false,
+                        overflow: "auto",
+                        loadingMessage:"Loading Grunddaten...",
+                        viewURL:"/dbv3/pages/wkdpers.jsp?dbv3_man=defaultman&applyWithExist=false&bwgnr=&bwrnr=&template_id=company"
+                    })
+                },
+                
+                { title:"Anlagen",
+                    ID:"wkdanlagFormTab",
+                    pane:isc.ViewLoader.create({
+                        ID:"wkanlagFormPane",
+                        autoDraw:false,
+                        overflow: "auto",
+                        loadingMessage:"Loading Anlagen...",
+                        viewURL:"/dbv3/pages/wkdanlag.jsp?dbv3_man=defaultman&bwrnr=&bwgnr=&template_id=company"
+                    })
+                }
+                
+            ]
+        });
+		//    javascript:isc.showConsole();
+ 
+    // label for empty list grid customize
+    isc.ListGrid.addProperties({emptyMessage: "Keine Daten vorhanden"});
+    // disable "Contacting server" message by data load
+    isc.DataSource.addProperties({showPrompt: false});
+    
+	//function shows window with form and set hidden fields values
+
+	function showEForm(recid){
+		 
+		top.jobEmailWin.show();
+		jobEmailForm.getField('linkID').setValue(recid);
+		jobEmailForm.getField('sprache').setValue('de');
+		
+	}
+	
+	function checkSubmitMail(){
+		if(!jobEmailForm.validate()){
+			return;
+		}
+		jobEmailForm.getField('email').setValue("");
+		jobEmailForm.submitForm();
+		jobEmailWin.closeClick();
+		
+	}
+//window containing form to enable to send job offer by email
+	isc.Window.create({
+		ID: "jobEmailWin",
+		autoSize:true,
+		autoCenter: true,
+		autoDraw: false,
+		showHeader: true,
+		title:'Senden Sie dieses Angebot per E-Mail',
+		canDragReposition : false,
+		isModal: true,
+		showModalMask: true,
+		showMinimizeButton :false,
+		showHeaderIcon :false,
+		width: "420",
+		items: [
+			isc.DynamicForm.create({
+				ID: "jobEmailForm",
+				width: "420",
+			//	height: "110",
+				canSubmit: true,
+				action: "/dbv3/web/MailSender.do",
+				titleOrientation :"left",
+				titleAlign:"right", 
+				target: "sendFormOk",
+				autoDraw:false,
+				numCols:2,
+				colWidths:	[200,200],
+				align:"center",
+				cellBorder:"0", 
+				fixedColWidths: true, 
+				longTextEditorThreshold:40, 
+				fields: [
+				{type:"rowSpacer"},
+					{name: "mailFrom", width:"200",title: 'Ihre E-Mail Adresse', required: true, startRow: true, type: "input", defaultValue: "@",
+					validators:[ {type:"regexp", errorMessage:"Falsches Format der E-Mail Adresse",  expression:/^([a-zA-Z0-9_.\-+])+@(([a-zA-Z0-9\-])+\.)+[a-zA-Z0-9]{2,4}$/ } ]},
+					{name: "mailTo", width:"200", title: 'Empfänger E-Mail Adresse', required: true, endRow: true, type: "input", defaultValue: "@", 
+					validators:[ {type:"regexp", errorMessage:"Falsches Format der E-Mail Adresse",  expression:/^([a-zA-Z0-9_.\-+])+@(([a-zA-Z0-9\-])+\.)+[a-zA-Z0-9]{2,4}$/ } ]},
+					{name: "mailText", length :"250", width:"400",  title: 'Text', type: "text",  colSpan:4,titleOrientation:"top", 
+					cellStyle:"disfc",titleStyle:"disfc" 
+						
+					},
+					{name:"linkID", title: '', type:"input", cellStyle:"disfc",titleStyle:"disfc" },
+					{name:"closeWin", type:"button", title: 'Schließen', click:"jobEmailWin.closeClick();", startRow:true, endRow:false, align:"right"},
+					{name:"sendForm", type:"button", title: 'Senden', click:"checkSubmitMail()", startRow:false, endRow:true},
+					{name: "sprache", title: "sprache", type: "input", defaultValue: "@", cellStyle:"disfc",titleStyle:"disfc" },
+					{name: "email", title: "email", type: "input", defaultValue: "@", cellStyle:"disfc",titleStyle:"disfc" },
+					
+					{name: "mandantId", title: "sprache", type: "input", defaultValue: "defaultman", cellStyle:"disfc",titleStyle:"disfc" },
+					{type:"rowSpacer"}
+				]
+			})
+		]
+	});
+        isc.VLayout.create({
+            ID:"mainLayout",
+            left:250,
+            width: "1050px",
+            height: "98%",
+            autoDraw:true,
+            overflow: "auto",
+            membersMargin:5,
+            members:[ topPane, 
+                      mainTabset
+                      
+                    ]
+        });
+
+var _socNetworkData = null;
+var _socNetworkID = null;
+
+/* social network */       
+function fillPersonDataToFormular(networkID, jsonDataString) {
+    try{
+      _socNetworkID = networkID;
+      completeData = JSON.parse(jsonDataString);
+      if (completeData.status == 1){  // if OK - fill formular
+        personData = completeData.data[0];
+        _socNetworkData = personData;
+        isc.say(completeData.message);
+      } else{
+          isc.warn(completeData.message);
+      }
+    } catch(e){
+      isc.warn("Es ist ein Fehler bei der Verarbeitung der Daten aufgetreten!");
+    }
+    
+    var selectedTabID = null;
+    try{
+      selectedTabID = mainTabset.getSelectedTab().ID;
+    } catch(e){}
+    
+    if (selectedTabID != null && selectedTabID == "wkdpersFormTab"){
+      fillWkdpersFormular();
+    } else{
+      mainTabset.selectTab("wkdpersFormTab");
+    }
+}
+function checkBirth(form2,field) {
+    try{
+		//alert(dateOfBirth);
+		d = dateOfBirth;
+		d2 = form2.getItem(field).getEnteredValue();
+		date1=Date.parseInput(d);
+		date2=Date.parseInput(d2);
+		if(!isA.Date(date1) || !isA.Date(date2)) // ignore, let validation to anounce the error
+            return true;
+		if(date1.getTime()>date2.getTime()){
+			form2.getField(field).validators[1].errorMessage='Eingegebenes Datum darf nicht kleiner als das Geburtsdatum sein.';
+			return false;
+		}
+    } catch(e){
+	  return true;
+    }
+	return true;
+}
+  function checkBirthTab(grid, field) {
+    try{
+		//alert(dateOfBirth);
+		d = dateOfBirth;
+        d1 = grid.getEditValue(grid.getEditRow(), grid.getFieldNum(field));
+        date1=Date.parseInput(d);
+		date2=d1;
+		if(!isA.Date(d) || !isA.Date(date1)) // ignore, let validation to anounce the error
+            return true;
+		if(date1.getTime()>d1.getTime()){
+			grid.fields[grid.getFieldNum(field)].validators[0].errorMessage='Eingegebenes Datum darf nicht kleiner als das Geburtsdatum sein.';
+		//schuleListGrid.fields[0].validators[0]	
+			return false;
+		}
+	}
+    catch(e){
+		return true;
+	}
+	return true;
+    
+}
+function setBirth(form, field) {
+    try {
+        d = form.getItem(field).getEnteredValue();
+        if(d == null || d == '')
+            return true;
+		Date.parseInput(d);
+    } catch(e) { 
+	}
+   dateOfBirth = Date.parseInput(d);
+}
+</script><table style="position:absolute;left:0px;top:-2000px;" cellpadding="81"><tbody><tr><td id="isc_cellStyleTester" class="vScrollThumb">&nbsp;</td><td id="isc_cellNoStyleTester">&nbsp;</td></tr></tbody></table><div id="isc_styleTester" style="position:absolute;left:0px;top:-2000px;" class="vScrollThumb">&nbsp;</div><div id="isc_1" eventproxy="mainLayout" class="normal" style="POSITION:absolute;LEFT:250px;TOP:0px;WIDTH:1050px;HEIGHT:732px;Z-INDEX:200018;OVERFLOW:hidden;-moz-box-sizing:border-box;CURSOR:default;display:inline-block" onscroll="return mainLayout.$lh()">&nbsp;<div id="isc_2" eventproxy="topPane" class="setCustomHeight" style="position: absolute; left: 0px; top: 0px; width: 1050px; height: 200px; z-index: 200090; overflow: hidden; box-sizing: border-box; display: inline-block;" onscroll="return topPane.$lh()" role="article"><iframe scrolling="no" src="StartApply.do_files/top.html" style="height: 200px;" width="100%" height="100%" frameborder="0"></iframe></div><div id="isc_3" eventproxy="topPane" class="normal" style="position: absolute; left: 0px; top: 0px; width: 1050px; height: 200px; z-index: 200108; overflow: hidden; visibility: hidden; box-sizing: border-box; display: inline-block;" onscroll="return topPane.$lh()"><span style="display:inline-block;background-size:100% 100%;background-image:url(&quot;https://bewerber.bitmarck.de/dbv3/isomorphic/skins/Enterprise/images/blank.gif&quot;);width:3200px;height:2400px;vertical-align:text-top"></span></div><div id="isc_4" eventproxy="mainTabset" class="normal" style="position: absolute; left: 0px; top: 205px; width: 1050px; height: 527px; z-index: 200126; overflow: hidden; box-sizing: border-box; cursor: default; display: inline-block;" onscroll="return mainTabset.$lh()">&nbsp;<div id="isc_5" eventproxy="mainTabset_tabBar" class="tabBarTop" style="position: absolute; left: 0px; top: 0px; width: 1050px; height: 24px; z-index: 800018; overflow: hidden; box-sizing: border-box; cursor: default; display: inline-block;" onscroll="return mainTabset_tabBar.$lh()" onfocus="if(event.target!=this)return;isc.EH.focusInCanvas(mainTabset_tabBar,true);" onblur="if(window.isc)isc.EH.blurFocusCanvas(mainTabset_tabBar,true);" tabindex="1240" role="tablist">&nbsp;<div id="isc_6" eventproxy="wkdpersFormTab" role="tab" onfocus="if(event.target!=this)return;isc.EH.focusInCanvas(wkdpersFormTab,true);" onblur="if(window.isc)isc.EH.blurFocusCanvas(wkdpersFormTab,true);" tabindex="1240" style="position: absolute; left: 5px; top: 0px; width: 80px; height: 24px; z-index: 800036; box-shadow: white 0px 1px 1px inset, white 1px 0px 1px inset, white -1px 0px 1px inset; box-sizing: border-box; overflow: hidden;" onscroll="return wkdpersFormTab.$lh()"><div id="isc_7" eventproxy="wkdpersFormTab" style="position: relative; display: inline-block; box-sizing: border-box; width: 100%; vertical-align: top; visibility: inherit; z-index: 800036; cursor: pointer; box-shadow: white 0px 1px 1px inset, white 1px 0px 1px inset, white -1px 0px 1px inset;"><table width="80" height="24" cellspacing="0" cellpadding="0"><tbody><tr><td class="tabButtonTopSelected" tabindex="-1" onfocus="wkdpersFormTab.$47()" valign="center" nowrap="true" align="center">Grunddaten</td></tr></tbody></table></div></div><div id="isc_8" eventproxy="wkdanlagFormTab" role="tab" onfocus="if(event.target!=this)return;isc.EH.focusInCanvas(wkdanlagFormTab,true);" onblur="if(window.isc)isc.EH.blurFocusCanvas(wkdanlagFormTab,true);" tabindex="-1" style="position: absolute; left: 86px; top: 0px; width: 80px; height: 24px; z-index: 200162; box-shadow: white 0px 1px 1px inset, white 1px 0px 1px inset, white -1px 0px 1px inset; box-sizing: border-box; overflow: hidden;" onscroll="return wkdanlagFormTab.$lh()"><div id="isc_9" eventproxy="wkdanlagFormTab" style="POSITION:relative;display:inline-block;-moz-box-sizing:border-box;box-sizing:border-box;width:100%;vertical-align:top;VISIBILITY:inherit;Z-INDEX:200162;CURSOR:pointer;"><table width="80" height="24" cellspacing="0" cellpadding="0"><tbody><tr><td class="tabButtonTop" tabindex="-1" onfocus="wkdanlagFormTab.$47()" valign="center" nowrap="true" align="center">Anlagen</td></tr></tbody></table></div></div><div id="isc_A" style="position:absolute;width:1px;height:1px;overflow:hidden;left:170px;top:23px;font-size:0px">&nbsp;</div><div id="isc_B" eventproxy="mainTabset_tabBar_baseLine" class="normal" style="POSITION:absolute;LEFT:0px;TOP:23px;WIDTH:1050px;HEIGHT:1px;Z-INDEX:200180;OVERFLOW:hidden;BACKGROUND-COLOR:#C0C3C7;-moz-box-sizing:border-box;CURSOR:default;display:inline-block" onscroll="return mainTabset_tabBar_baseLine.$lh()">&nbsp;</div></div><div id="isc_C" eventproxy="mainTabset_paneContainer" class="tabSetContainer" style="POSITION:absolute;LEFT:0px;TOP:23px;WIDTH:1050px;HEIGHT:504px;Z-INDEX:200036;OVERFLOW:hidden;-moz-box-sizing:border-box;CURSOR:default;display:inline-block" onscroll="return mainTabset_paneContainer.$lh()" role="tabpanel">&nbsp;<div id="isc_D" eventproxy="wkdpersFormPane" style="position: absolute; left: 5px; top: 5px; width: 1024px; height: 478px; z-index: 200198; overflow: hidden; box-sizing: border-box; cursor: default; display: inline-block;" onscroll="return wkdpersFormPane.$lh()" role="label"><table style="table-layout:fixed;overflow:hidden;" width="1024px" height="478px" cellspacing="0" cellpadding="0"><tbody><tr><td class="normal" valign="center" align="center">&nbsp;</td></tr></tbody></table><div id="isc_52" eventproxy="hLayoutPers" class="normal" style="position: absolute; left: 0px; top: 0px; width: 1040px; height: 666px; z-index: 200234; padding: 0px; box-sizing: border-box; overflow: hidden; cursor: default;" onscroll="return hLayoutPers.$lh()"><div id="isc_53" eventproxy="hLayoutPers" style="POSITION:relative;display:inline-block;-moz-box-sizing:border-box;box-sizing:border-box;width:100%;vertical-align:top;VISIBILITY:inherit;Z-INDEX:200234;CURSOR:default;">&nbsp;<div id="isc_F" eventproxy="wkdpersForm" class="normal" style="position: absolute; left: 0px; top: 0px; width: 713px; height: 666px; z-index: 200216; box-sizing: border-box; overflow: hidden; cursor: default;" onscroll="return wkdpersForm.$lh()"><div id="isc_G" eventproxy="wkdpersForm" style="POSITION:relative;display:inline-block;-moz-box-sizing:border-box;box-sizing:border-box;width:100%;vertical-align:top;VISIBILITY:inherit;Z-INDEX:200216;CURSOR:default;"><form id="isc_H" method="POST" action="#" enctype="application/x-www-form-urlencoded" onsubmit="return wkdpersForm.$10d()" onreset="wkdpersForm.resetValues(); return false;" style="margin-bottom:0px"><table role="presentation" id="isc_I" cellspacing="0" cellpadding="2" border="0"><tbody></tbody><colgroup><col width="200"><col width="150"><col width="200"><col width="150"></colgroup><tbody><tr><td style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;height:0px;overflow:hidden;padding:0px;" class=""></td><td style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;height:0px;overflow:hidden;padding:0px;" class=""></td><td style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;height:0px;overflow:hidden;padding:0px;" class=""></td><td style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;height:0px;overflow:hidden;padding:0px;" class=""></td></tr><tr><td class="formCell" style="" colspan="6" id="isc_J" $89="isc_BlurbItem_0" align="left"><div id="isc_K" $89="isc_BlurbItem_0" $9a="$9d" class="staticTextItem" style="min-width:696px;white-space:nowrap;">Bitte
+ füllen Sie diesen Fragebogen vollständig aus, auch wenn Sie 
+entsprechende Angaben bereits in Ihren Bewerbungsunterlagen gemacht 
+haben!<br><br>Achtung nach 60 Minuten von Inaktivität wird die Session 
+geschlossen. In dieser Zeit müssen Sie die Bewerbung abgeschlossen 
+haben.<br><br> Um Ihre Bewerbung absenden zu können, bitten wir Sie, die <a href="https://www.bitmarck.de/datenschutz" target="_blank">Datenschutzerklärung</a> zur Kenntnis zu nehmen<br>und vor Absendung Ihrer Bewerbung die Einwilligungserklärung zu akzeptieren.<br><u>Ohne die Abgabe der Einwilligung ist eine Übermittlung und damit Bearbeitung der Bewerbung nicht möglich.</u></div></td></tr><tr><td class="formCell" style="" colspan="4" id="isc_L" $89="isc_RowSpacerItem_2" align="left"><span style="display:inline-block;background-size:100% 100%;background-image:url(&quot;https://bewerber.bitmarck.de/dbv3/isomorphic/skins/Enterprise/images/blank.gif&quot;);width:20px;height:20px;vertical-align:text-top"></span></td></tr><tr><td $89="isc_ComboBoxItem_0" $9a="$9g" id="isc_M" class="formTitle" valign="middle" align="left"><b><label for="isc_N">Anrede</label>:*</b></td><td class="formCell" style="" id="isc_O" $89="isc_ComboBoxItem_0" align="left"><table role="presentation" id="isc_P" $89="isc_ComboBoxItem_0" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCell" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="pdanrede" id="isc_N" handlenativeevents="false" $89="isc_ComboBoxItem_0" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_0.$43g()" onselect="isc_ComboBoxItem_0.$1162()" autocomplete="OFF" class="selectItemText" style="width:124px;height:14px;-moz-user-focus:normal;" tabindex="1548"></td><td id="isc_R" class="comboBoxItemPickerCell" style=""><span role="button" id="isc_S" style="margin-left:0px;-moz-user-focus:ignore;cursor:pointer" tabindex="-1" $89="isc_ComboBoxItem_0" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPicker" id="isc_T" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td><td $89="isc_ComboBoxItem_1" $9a="$9g" id="isc_U" class="formTitle" valign="middle" align="left"><label for="isc_V">Titel</label>:</td><td class="formCell" style="" id="isc_W" $89="isc_ComboBoxItem_1" align="left"><table role="presentation" id="isc_X" $89="isc_ComboBoxItem_1" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCell" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="pdtitel" id="isc_V" handlenativeevents="false" $89="isc_ComboBoxItem_1" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_1.$43g()" onselect="isc_ComboBoxItem_1.$1162()" autocomplete="OFF" class="selectItemText" style="width:124px;height:14px;-moz-user-focus:normal;" tabindex="1549"></td><td id="isc_Z" class="comboBoxItemPickerCell" style=""><span role="button" id="isc_10" style="margin-left:0px;-moz-user-focus:ignore;cursor:pointer" tabindex="-1" $89="isc_ComboBoxItem_1" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPicker" id="isc_11" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td></tr><tr><td $89="isc_TextItem_6" $9a="$9g" id="isc_12" class="formTitle" valign="middle" align="left"><b><label for="isc_13">Nachname</label>:*</b></td><td class="formCell" style="" id="isc_14" $89="isc_TextItem_6" align="left"><input type="TEXT" name="pdnaname" id="isc_13" handlenativeevents="false" $89="isc_TextItem_6" $9a="$9b" spellcheck="true" oninput="isc_TextItem_6.$43g()" onselect="isc_TextItem_6.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1551"></td><td $89="isc_TextItem_7" $9a="$9g" id="isc_15" class="formTitle" valign="middle" align="left"><b><label for="isc_16">Vorname</label>:*</b></td><td class="formCell" style="" id="isc_17" $89="isc_TextItem_7" align="left"><input type="TEXT" name="pdvoname" id="isc_16" handlenativeevents="false" $89="isc_TextItem_7" $9a="$9b" spellcheck="true" oninput="isc_TextItem_7.$43g()" onselect="isc_TextItem_7.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1552"></td></tr><tr><td $89="isc_ComboBoxItem_3" $9a="$9g" id="isc_18" class="formTitle" valign="middle" align="left"><label for="isc_19">Namenszusatz</label>:</td><td class="formCell" style="" id="isc_1A" $89="isc_ComboBoxItem_3" align="left"><table role="presentation" id="isc_1B" $89="isc_ComboBoxItem_3" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCell" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="pdnamezs" id="isc_19" handlenativeevents="false" $89="isc_ComboBoxItem_3" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_3.$43g()" onselect="isc_ComboBoxItem_3.$1162()" autocomplete="OFF" class="selectItemText" style="width:124px;height:14px;-moz-user-focus:normal;" tabindex="1553"></td><td id="isc_1D" class="comboBoxItemPickerCell" style=""><span role="button" id="isc_1E" style="margin-left:0px;-moz-user-focus:ignore;cursor:pointer" tabindex="-1" $89="isc_ComboBoxItem_3" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPicker" id="isc_1F" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td><td $89="isc_ComboBoxItem_4" $9a="$9g" id="isc_1G" class="formTitle" valign="middle" align="left"><label for="isc_1H">Vorsatzwort</label>:</td><td class="formCell" style="" id="isc_1I" $89="isc_ComboBoxItem_4" align="left"><table role="presentation" id="isc_1J" $89="isc_ComboBoxItem_4" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCell" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="pdnamevo" id="isc_1H" handlenativeevents="false" $89="isc_ComboBoxItem_4" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_4.$43g()" onselect="isc_ComboBoxItem_4.$1162()" autocomplete="OFF" class="selectItemText" style="width:124px;height:14px;-moz-user-focus:normal;" tabindex="1554"></td><td id="isc_1L" class="comboBoxItemPickerCell" style=""><span role="button" id="isc_1M" style="margin-left:0px;-moz-user-focus:ignore;cursor:pointer" tabindex="-1" $89="isc_ComboBoxItem_4" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPicker" id="isc_1N" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td></tr><tr><td $89="isc_TextItem_8" $9a="$9g" id="isc_1O" class="formTitle" valign="middle" align="left"><b><label for="isc_1P">E-Mail</label>:*</b></td><td class="formCell" style="" id="isc_1Q" $89="isc_TextItem_8" align="left"><input type="TEXT" name="kodnr" id="isc_1P" handlenativeevents="false" $89="isc_TextItem_8" $9a="$9b" spellcheck="true" oninput="isc_TextItem_8.$43g()" onselect="isc_TextItem_8.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1555"></td></tr><tr><td $89="isc_DateItem_0" $9a="$9g" id="isc_1R" class="formTitle" valign="middle" align="left"><label for="isc_1S">Geburtsdatum</label>:</td><td class="formCell" style="" id="isc_1T" $89="isc_DateItem_0" align="left"><table role="presentation" id="isc_1U" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td class="formCell" style="" id="isc_1V" $89="isc_TextItem_10" align="left"><input type="TEXT" name="pdgebdat_dateTextField" id="isc_1S" handlenativeevents="false" $89="isc_TextItem_10" $9a="$9b" spellcheck="true" oninput="isc_TextItem_10.$43g()" onselect="isc_TextItem_10.$1162()" autocomplete="OFF" class="textItem" style="width:123px;height:14px;text-align:right;-moz-user-focus:normal;" tabindex="1558"></td><td class="formCell" style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" width="16" align="left"><table role="presentation" margin="0" cellspacing="0" cellpadding="0"><tbody><tr><td><span role="button" id="isc_1W" style="margin-left:0px;-moz-user-focus:normal;cursor:pointer" tabindex="1558" aria-label="Datum auswählen" $89="isc_DateItem_0" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/date_control.png" style=";margin-top:0px;margin-bottom:0px;margin-left:3px;display:block;" id="isc_1X" suppress="TRUE" draggable="true" width="16" height="14" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td></tr></tbody></table></td><td $89="isc_TextItem_11" $9a="$9g" id="isc_1Y" class="formTitle" valign="middle" align="left"><label for="isc_1Z">Geburtsort</label>:</td><td class="formCell" style="" id="isc_20" $89="isc_TextItem_11" align="left"><input type="TEXT" name="pdgebort" id="isc_1Z" handlenativeevents="false" $89="isc_TextItem_11" $9a="$9b" spellcheck="true" oninput="isc_TextItem_11.$43g()" onselect="isc_TextItem_11.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1559"></td></tr><tr><td $89="isc_ComboBoxItem_5" $9a="$9g" id="isc_21" class="formTitle" valign="middle" align="left"><b><label for="isc_22">Geschlecht</label>:*</b></td><td class="formCell" style="" id="isc_23" $89="isc_ComboBoxItem_5" align="left"><table role="presentation" id="isc_24" $89="isc_ComboBoxItem_5" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCell" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="pdgeschl" id="isc_22" handlenativeevents="false" $89="isc_ComboBoxItem_5" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_5.$43g()" onselect="isc_ComboBoxItem_5.$1162()" autocomplete="OFF" class="selectItemText" style="width:124px;height:14px;-moz-user-focus:normal;" tabindex="1560"></td><td id="isc_26" class="comboBoxItemPickerCell" style=""><span role="button" id="isc_27" style="margin-left:0px;-moz-user-focus:ignore;cursor:pointer" tabindex="-1" $89="isc_ComboBoxItem_5" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPicker" id="isc_28" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td><td $89="isc_ComboBoxItem_6" $9a="$9g" id="isc_29" class="formTitle" valign="middle" align="left"><label for="isc_2A">Familienstand allgemein</label>:</td><td class="formCell" style="" id="isc_2B" $89="isc_ComboBoxItem_6" align="left"><table role="presentation" id="isc_2C" $89="isc_ComboBoxItem_6" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCell" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="mdfamstd" id="isc_2A" handlenativeevents="false" $89="isc_ComboBoxItem_6" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_6.$43g()" onselect="isc_ComboBoxItem_6.$1162()" autocomplete="OFF" class="selectItemText" style="width:124px;height:14px;-moz-user-focus:normal;" tabindex="1561"></td><td id="isc_2E" class="comboBoxItemPickerCell" style=""><span role="button" id="isc_2F" style="margin-left:0px;-moz-user-focus:ignore;cursor:pointer" tabindex="-1" $89="isc_ComboBoxItem_6" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPicker" id="isc_2G" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td></tr><tr><td $89="isc_TextItem_12" $9a="$9g" id="isc_2H" class="formTitle" valign="middle" align="left"><b><label for="isc_2I">Straße</label>:*</b></td><td class="formCell" style="" id="isc_2J" $89="isc_TextItem_12" align="left"><input type="TEXT" name="pdstr" id="isc_2I" handlenativeevents="false" $89="isc_TextItem_12" $9a="$9b" spellcheck="true" oninput="isc_TextItem_12.$43g()" onselect="isc_TextItem_12.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1562"></td></tr><tr><td $89="isc_TextItem_15" $9a="$9g" id="isc_2K" class="formTitle" valign="middle" align="left"><b><label for="isc_2L">Postleitzahl</label>:*</b></td><td class="formCell" style="" id="isc_2M" $89="isc_TextItem_15" align="left"><input type="TEXT" name="pdplz" id="isc_2L" handlenativeevents="false" $89="isc_TextItem_15" $9a="$9b" spellcheck="true" oninput="isc_TextItem_15.$43g()" onselect="isc_TextItem_15.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1565"></td><td $89="isc_TextItem_16" $9a="$9g" id="isc_2N" class="formTitle" valign="middle" align="left"><b><label for="isc_2O">Wohnort</label>:*</b></td><td class="formCell" style="" id="isc_2P" $89="isc_TextItem_16" align="left"><input type="TEXT" name="pdort" id="isc_2O" handlenativeevents="false" $89="isc_TextItem_16" $9a="$9b" spellcheck="true" oninput="isc_TextItem_16.$43g()" onselect="isc_TextItem_16.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1566"></td></tr><tr><td $89="isc_TextItem_17" $9a="$9g" id="isc_2Q" class="formTitle" valign="middle" align="left"><label for="isc_2R">Zusatz Ortsteil</label>:</td><td class="formCell" style="" id="isc_2S" $89="isc_TextItem_17" align="left"><input type="TEXT" name="pdcoadr" id="isc_2R" handlenativeevents="false" $89="isc_TextItem_17" $9a="$9b" spellcheck="true" oninput="isc_TextItem_17.$43g()" onselect="isc_TextItem_17.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1567"></td></tr><tr><td $89="isc_TextItem_18" $9a="$9g" id="isc_2T" class="formTitle" valign="middle" align="left"><label for="isc_2U">Geburtsname</label>:</td><td class="formCell" style="" id="isc_2V" $89="isc_TextItem_18" align="left"><input type="TEXT" name="pdgebnam" id="isc_2U" handlenativeevents="false" $89="isc_TextItem_18" $9a="$9b" spellcheck="true" oninput="isc_TextItem_18.$43g()" onselect="isc_TextItem_18.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1569"></td><td $89="isc_ComboBoxItem_8" $9a="$9g" id="isc_2W" class="formTitle" valign="middle" align="left"><label for="isc_2X">Geburtsland</label>:</td><td class="formCell" style="" id="isc_2Y" $89="isc_ComboBoxItem_8" align="left"><table role="presentation" id="isc_2Z" $89="isc_ComboBoxItem_8" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCell" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="pgland" id="isc_2X" handlenativeevents="false" $89="isc_ComboBoxItem_8" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_8.$43g()" onselect="isc_ComboBoxItem_8.$1162()" autocomplete="OFF" class="selectItemText" style="width:124px;height:14px;-moz-user-focus:normal;" tabindex="1570"></td><td id="isc_31" class="comboBoxItemPickerCell" style=""><span role="button" id="isc_32" style="margin-left:0px;-moz-user-focus:ignore;cursor:pointer" tabindex="-1" $89="isc_ComboBoxItem_8" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPicker" id="isc_33" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td></tr><tr><td $89="isc_ComboBoxItem_9" $9a="$9g" id="isc_34" class="formTitle" valign="middle" align="left"><label for="isc_35">Staatsangehörigkeit</label>:</td><td class="formCell" style="" id="isc_36" $89="isc_ComboBoxItem_9" align="left"><table role="presentation" id="isc_37" $89="isc_ComboBoxItem_9" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCell" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="pdstaat" id="isc_35" handlenativeevents="false" $89="isc_ComboBoxItem_9" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_9.$43g()" onselect="isc_ComboBoxItem_9.$1162()" autocomplete="OFF" class="selectItemText" style="width:124px;height:14px;-moz-user-focus:normal;" tabindex="1571"></td><td id="isc_39" class="comboBoxItemPickerCell" style=""><span role="button" id="isc_3A" style="margin-left:0px;-moz-user-focus:ignore;cursor:pointer" tabindex="-1" $89="isc_ComboBoxItem_9" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPicker" id="isc_3B" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td><td $89="isc_ComboBoxItem_10" $9a="$9g" id="isc_3C" class="formTitleDisabled" valign="middle" align="left"><label for="isc_3D">2. Staatsangehörigkeit</label>:</td><td class="formCellDisabled" style="" id="isc_3E" $89="isc_ComboBoxItem_10" align="left"><div isdisabledeventmask="true" style="overflow:hidden;position:absolute;width:146px;height:22px" $89="isc_ComboBoxItem_10" $9a="$9b" id="isc_3F"><span style="display:inline-block;background-size:100% 100%;background-image:url(&quot;https://bewerber.bitmarck.de/dbv3/isomorphic/skins/Enterprise/images/blank.gif&quot;);width:1600px;height:100px;vertical-align:text-top"></span></div><table role="presentation" id="isc_3G" $89="isc_ComboBoxItem_10" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCellDisabled" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="pdstaatz" id="isc_3D" handlenativeevents="false" $89="isc_ComboBoxItem_10" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_10.$43g()" onselect="isc_ComboBoxItem_10.$1162()" disabled="disabled" autocomplete="OFF" class="selectItemTextDisabled" style="width:124px;height:14px;-moz-user-focus:ignore;" tabindex="-1"></td><td id="isc_3I" class="comboBoxItemPickerCellDisabled" style=""><span role="button" id="isc_3J" style="margin-left:0px;-moz-user-focus:ignore;cursor:default;" tabindex="-1" aria-disabled="true" $89="isc_ComboBoxItem_10" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPickerDisabled" id="isc_3K" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td></tr><tr><td $89="isc_ComboBoxItem_12" $9a="$9g" id="isc_3L" class="formTitle" valign="middle" align="left"><label for="isc_3M">Schulabschluss</label>:</td><td class="formCell" style="" id="isc_3N" $89="isc_ComboBoxItem_12" align="left"><table role="presentation" id="isc_3O" $89="isc_ComboBoxItem_12" $9a="$9f" style="cursor:default;width:146px;margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" class="formCell" cellspacing="0" cellpadding="0"><tbody><tr><td style="white-space:nowrap;"><input type="TEXT" name="vueschul" id="isc_3M" handlenativeevents="false" $89="isc_ComboBoxItem_12" $9a="$9b" spellcheck="true" oninput="isc_ComboBoxItem_12.$43g()" onselect="isc_ComboBoxItem_12.$1162()" autocomplete="OFF" class="selectItemText" style="width:124px;height:14px;-moz-user-focus:normal;" tabindex="1579"></td><td id="isc_3Q" class="comboBoxItemPickerCell" style=""><span role="button" id="isc_3R" style="margin-left:0px;-moz-user-focus:ignore;cursor:pointer" tabindex="-1" $89="isc_ComboBoxItem_12" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/blank.gif" style=";margin-top:0px;margin-bottom:0px;margin-left:0px;display:block;" class="comboBoxItemPicker" id="isc_3S" suppress="TRUE" draggable="true" width="18" height="22" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td></tr><tr><td $89="isc_RadioGroupItem_0" $9a="$9g" id="isc_3T" class="formTitle" valign="middle" align="left">Führerschein PKW:</td><td class="formCell" style="" id="isc_3U" $89="isc_RadioGroupItem_0" align="left"><table role="presentation" id="isc_3V" cellspacing="0" cellpadding="2" border="0"><tbody><tr><td class="formCell" style="" id="isc_3W" $89="isc_RadioItem_0" align="left"><table role="presentation" id="isc_3Y" class="labelAnchor" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td width="20"><input type="RADIO" name="vuekfz" id="isc_3X" $89="isc_RadioItem_0" $9a="$9b" value="0" handlenativeevents="false" tabindex="1580" style="-moz-user-focus:normal;"></td><td class="labelAnchor" style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" height="20" align="LEFT"><label for="isc_3X">Nein</label></td></tr></tbody></table></td><td class="formCell" style="" id="isc_3Z" $89="isc_RadioItem_1" align="left"><table role="presentation" id="isc_41" class="labelAnchor" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td width="20"><input type="RADIO" name="vuekfz" id="isc_40" $89="isc_RadioItem_1" $9a="$9b" value="1" handlenativeevents="false" tabindex="1580" style="-moz-user-focus:normal;"></td><td class="labelAnchor" style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" height="20" align="LEFT"><label for="isc_40">Ja</label></td></tr></tbody></table></td></tr></tbody></table></td></tr><tr><td $89="isc_TextItem_26" $9a="$9g" id="isc_42" class="formTitle" valign="middle" align="left"><b><label for="isc_43">Telefonnummer Privat</label>:*</b></td><td class="formCell" style="" id="isc_44" $89="isc_TextItem_26" align="left"><input type="TEXT" name="pdtelprv" id="isc_43" handlenativeevents="false" $89="isc_TextItem_26" $9a="$9b" spellcheck="true" oninput="isc_TextItem_26.$43g()" onselect="isc_TextItem_26.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1584"></td></tr><tr><td $89="isc_TextItem_32" $9a="$9g" id="isc_45" class="formTitle" valign="middle" align="left"><label for="isc_46">Telefon mobil</label>:</td><td class="formCell" style="" id="isc_47" $89="isc_TextItem_32" align="left"><input type="TEXT" name="zzdumpgn" id="isc_46" handlenativeevents="false" $89="isc_TextItem_32" $9a="$9b" spellcheck="true" oninput="isc_TextItem_32.$43g()" onselect="isc_TextItem_32.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1590"></td></tr><tr><td $89="isc_IntnumberItem_1" $9a="$9g" id="isc_48" class="formTitle" valign="middle" align="left"><b><label for="isc_49">Gehaltswunsch jährlich</label>:*</b></td><td class="formCell" style="" id="isc_4A" $89="isc_IntnumberItem_1" align="left"><input type="TEXT" name="bwsjg" id="isc_49" handlenativeevents="false" $89="isc_IntnumberItem_1" $9a="$9b" spellcheck="true" oninput="isc_IntnumberItem_1.$43g()" onselect="isc_IntnumberItem_1.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;text-align:right;-moz-user-focus:normal;" tabindex="1595"></td></tr><tr><td $89="isc_DateItem_5" $9a="$9g" id="isc_4B" class="formTitle" valign="middle" align="left"><b><label for="isc_4C">Frühester Eintrittstermin</label>:*</b></td><td class="formCell" style="" id="isc_4D" $89="isc_DateItem_5" align="left"><table role="presentation" id="isc_4E" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td class="formCell" style="" id="isc_4F" $89="isc_TextItem_37" align="left"><input type="TEXT" name="bwsfein_dateTextField" id="isc_4C" handlenativeevents="false" $89="isc_TextItem_37" $9a="$9b" spellcheck="true" oninput="isc_TextItem_37.$43g()" onselect="isc_TextItem_37.$1162()" autocomplete="OFF" class="textItem" style="width:123px;height:14px;text-align:right;-moz-user-focus:normal;" tabindex="1597"></td><td class="formCell" style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" width="16" align="left"><table role="presentation" margin="0" cellspacing="0" cellpadding="0"><tbody><tr><td><span role="button" id="isc_4G" style="margin-left:0px;-moz-user-focus:normal;cursor:pointer" tabindex="1597" aria-label="Datum auswählen" $89="isc_DateItem_5" $9a="picker" handlenativeevents="false"><img src="StartApply.do_files/date_control.png" style=";margin-top:0px;margin-bottom:0px;margin-left:3px;display:block;" id="isc_4H" suppress="TRUE" draggable="true" width="16" height="14" border="0" align="TEXTTOP"></span></td></tr></tbody></table></td></tr></tbody></table></td></tr><tr><td $89="isc_RadioGroupItem_1" $9a="$9g" id="isc_4I" class="formTitle" valign="middle" align="left">Arbeitszeit:</td><td class="formCell" style="" id="isc_4J" $89="isc_RadioGroupItem_1" align="left"><table role="presentation" id="isc_4K" cellspacing="0" cellpadding="2" border="0"><tbody><tr><td class="formCell" style="" id="isc_4L" $89="isc_RadioItem_2" align="left"><table role="presentation" id="isc_4N" class="labelAnchor" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td width="20"><input type="RADIO" name="bwsaz" id="isc_4M" $89="isc_RadioItem_2" $9a="$9b" value="V" handlenativeevents="false" tabindex="1602" style="-moz-user-focus:normal;" checked="checked"></td><td class="labelAnchor" style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" height="20" align="LEFT"><label for="isc_4M">Vollzeit</label></td></tr></tbody></table></td><td class="formCell" style="" id="isc_4O" $89="isc_RadioItem_3" align="left"><table role="presentation" id="isc_4Q" class="labelAnchor" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td width="20"><input type="RADIO" name="bwsaz" id="isc_4P" $89="isc_RadioItem_3" $9a="$9b" value="T" handlenativeevents="false" tabindex="1602" style="-moz-user-focus:normal;"></td><td class="labelAnchor" style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;" height="20" align="LEFT"><label for="isc_4P">Teilzeit</label></td></tr></tbody></table></td></tr></tbody></table></td></tr><tr><td $89="isc_TextItem_42" $9a="$9g" id="isc_4R" class="formTitle" valign="middle" align="left"><label for="isc_4S">derzeit beschäftigt bei</label>:</td><td class="formCell" style="" id="isc_4T" $89="isc_TextItem_42" align="left"><input type="TEXT" name="bwsag" id="isc_4S" handlenativeevents="false" $89="isc_TextItem_42" $9a="$9b" spellcheck="true" oninput="isc_TextItem_42.$43g()" onselect="isc_TextItem_42.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1604"></td><td $89="isc_TextItem_43" $9a="$9g" id="isc_4U" class="formTitle" valign="middle" align="left"><label for="isc_4V">beschäftigt als</label>:</td><td class="formCell" style="" id="isc_4W" $89="isc_TextItem_43" align="left"><input type="TEXT" name="bwstaet" id="isc_4V" handlenativeevents="false" $89="isc_TextItem_43" $9a="$9b" spellcheck="true" oninput="isc_TextItem_43.$43g()" onselect="isc_TextItem_43.$1162()" autocomplete="OFF" class="textItem" style="width:142px;height:14px;-moz-user-focus:normal;" tabindex="1605"></td></tr><tr><td $89="isc_CheckboxItem_1" $9a="$9g" id="isc_4X" class="formTitle" valign="middle" align="left">&nbsp;</td><td class="formCell" style="" id="isc_4Y" $89="isc_CheckboxItem_1" align="left"><table role="presentation" id="isc_4Z" style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;white-space:normal;" class="formCell" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td style="margin:0px;border:0px;padding:0px;background-image:none;background-color:transparent;-webkit-box-shadow:none;box-shadow:none;height:20px" valign="middle"><div id="isc_50" $89="isc_CheckboxItem_1" $9a="$9d" class="labelAnchor" style="min-width:146px;white-space:nowrap;" tabindex="1607"><span style="display:inline-block;background-size:100% 100%;background-image:url(&quot;https://bewerber.bitmarck.de/dbv3/isomorphic/skins/Enterprise/images/DynamicForm/unchecked.png&quot;);width:13px;height:13px;vertical-align:text-top;margin-left:4px;margin-right:3px" id="isc_51" eventpart="valueicon"></span>Wettbewerbsverbot</div></td></tr></tbody></table></td></tr></tbody></table></form></div></div></div></div></div><div id="isc_5X" eventproxy="wkdpersFormPane_vscroll" class="scrollbar" dir="ltr" style="POSITION:absolute;LEFT:1030px;TOP:6px;WIDTH:16px;HEIGHT:494px;Z-INDEX:200199;OVERFLOW:hidden;-moz-box-sizing:border-box;CURSOR:default;display:inline-block" onscroll="return wkdpersFormPane_vscroll.$lh()"><table style="font-size:0px;" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td class="vScrollStart"><img src="StartApply.do_files/blank.gif" style="display:block" name="isc_5Xblank1" suppress="TRUE" draggable="true" width="16" height="18" border="0" align="TEXTTOP"></td></tr><tr><td class="vScrollTrack"><div style="overflow:hidden;height:441px;width:16px;"><img src="StartApply.do_files/blank.gif" style="display:block" name="isc_5Xblank" suppress="TRUE" draggable="true" width="16" height="443" border="0" align="TEXTTOP"></div></td></tr><tr><td class="vScrollEnd"><img src="StartApply.do_files/blank.gif" style="display:block" name="isc_5Xblank10" suppress="TRUE" draggable="true" width="16" height="18" border="0" align="TEXTTOP"></td></tr><tr><td class="scrollCorner"><img src="StartApply.do_files/blank.gif" style="display:block" name="isc_5Xblank0" suppress="TRUE" draggable="true" width="16" height="17" border="0" align="TEXTTOP"></td></tr></tbody></table></div><div id="isc_5Y" eventproxy="wkdpersFormPane_vscroll_thumb" class="vScrollThumb" style="position: absolute; left: 1030px; top: 22px; width: 15px; height: 319px; z-index: 200205; overflow: hidden; box-sizing: border-box; cursor: default; display: inline-block;" onscroll="return wkdpersFormPane_vscroll_thumb.$lh()"><table width="15" height="319" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td style="line-height:1px" valign="center" align="center"><img src="StartApply.do_files/blank.gif" name="isc_5Ymain" class="vScrollThumbGrip" suppress="TRUE" draggable="true" width="10" height="10" border="0" align="TEXTTOP"></td></tr></tbody></table></div><div id="isc_5V" eventproxy="wkdpersFormPane_hscroll" class="scrollbar" dir="ltr" style="POSITION:absolute;LEFT:6px;TOP:484px;WIDTH:1024px;HEIGHT:16px;Z-INDEX:200199;OVERFLOW:hidden;-moz-box-sizing:border-box;CURSOR:default;display:inline-block" onscroll="return wkdpersFormPane_hscroll.$lh()"><table style="font-size:0px;" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td class="hScrollStart"><img src="StartApply.do_files/blank.gif" name="isc_5Vblank1" suppress="TRUE" draggable="true" width="18" height="16" border="0" align="TEXTTOP"></td><td class="hScrollTrack"><div style="overflow:hidden;width:988px;height:16px;"><img src="StartApply.do_files/blank.gif" name="isc_5Vblank" suppress="TRUE" draggable="true" width="990" height="16" border="0" align="TEXTTOP"></div></td><td class="hScrollEnd"><img src="StartApply.do_files/blank.gif" name="isc_5Vblank10" suppress="TRUE" draggable="true" width="18" height="16" border="0" align="TEXTTOP"></td></tr></tbody></table></div><div id="isc_5W" eventproxy="wkdpersFormPane_hscroll_thumb" class="hScrollThumb" style="position: absolute; left: 22px; top: 484px; width: 977px; height: 15px; z-index: 200205; overflow: hidden; box-sizing: border-box; cursor: default; display: inline-block;" onscroll="return wkdpersFormPane_hscroll_thumb.$lh()"><table width="977" height="15" cellspacing="0" cellpadding="0" border="0"><tbody><tr><td style="line-height:1px" valign="center" align="center"><img src="StartApply.do_files/blank.gif" name="isc_5Wmain" class="hScrollThumbGrip" suppress="TRUE" draggable="true" width="10" height="10" border="0" align="TEXTTOP"></td></tr></tbody></table></div><div id="isc_E" style="position:absolute;width:1px;height:1px;overflow:hidden;left:1049px;top:503px;font-size:0px">&nbsp;</div></div></div></div><div id="isc_getStyleDeclaration_defaultReferenceElement" style="display: none;" class="normal"></div>
+
+<style>
+.hideMe{
+z-index:-1;
+}
+.disfc{
+display:none;
+}
+
+</style>
+
+<div id="sendFormOkid" style="display:none"><iframe id="sendFormOk" name="sendFormOk"></iframe></div>
+
+</body></html>
